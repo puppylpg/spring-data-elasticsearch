@@ -25,12 +25,30 @@
 		</encoder>
 	</appender>
 
+	<appender name="esTrace" class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<append>true</append>
+		<rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+			<fileNamePattern>logs/es-trace.%d{yyyy-MM-dd}.%i</fileNamePattern>
+			<maxHistory>3</maxHistory>
+			<maxFileSize>1GB</maxFileSize>
+			<totalSizeCap>5GB</totalSizeCap>
+		</rollingPolicy>
+		<encoder>
+			<pattern>%date %level [%thread] %logger{10} [%file:%line] %msg%n</pattern>
+		</encoder>
+	</appender>
+
 	<logger name="org.springframework.data.elasticsearch.junit" level="debug"/>
 	<logger name="org.springframework.data.elasticsearch.junit.junit4.ElasticsearchVersionRule" level="info"/>
 	<logger name="org.springframework.data.elasticsearch.client.WIRE" level="info"/>
 
 	<logger name="org.testcontainers" level="INFO"/>
 	<logger name="com.github.dockerjava" level="INFO"/>
+
+	# to show es request and response details
+	<logger name="tracer" level="trace" additivity="false">
+		<appender-ref ref="esTrace" />
+	</logger>
 
 	<root level="error">
 		<appender-ref ref="console"/>

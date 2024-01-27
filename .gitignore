@@ -34,3 +34,5 @@ package.json
 package-lock.json
 
 .mvn/.gradle-enterprise
+
+*es-trace*
