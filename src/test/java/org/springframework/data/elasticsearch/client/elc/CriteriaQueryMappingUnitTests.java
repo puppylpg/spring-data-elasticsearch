@@ -282,6 +282,75 @@ public class CriteriaQueryMappingUnitTests {
 		assertEquals(expected, queryString, false);
 	}
 
+	@Test
+	void shouldMatch() throws JSONException {
+
+		CriteriaQuery query1 = new CriteriaQuery( //
+				new Criteria("firstName").matches("John") //
+						.subCriteria(new Criteria("birthDate") //
+								.between(LocalDate.of(1989, 11, 9), LocalDate.of(1990, 11, 9)) //
+								.or("birthDate").is(LocalDate.of(2019, 12, 28))));
+
+		mappingElasticsearchConverter.updateQuery(query1, Person.class);
+		var queryString1 = queryToJson(CriteriaQueryProcessor.createQuery(query1.getCriteria()), mapper);
+
+		Criteria subCriteria2 = new Criteria("birthDate") //
+				.between(LocalDate.of(1989, 11, 9), LocalDate.of(1990, 11, 9));
+		subCriteria2.or("birthDate").is(LocalDate.of(2019, 12, 28));
+		CriteriaQuery query2 = new CriteriaQuery( //
+				new Criteria("firstName").matches("John") //
+						.subCriteria(subCriteria2));
+
+		mappingElasticsearchConverter.updateQuery(query2, Person.class);
+		var queryString2 = queryToJson(CriteriaQueryProcessor.createQuery(query2.getCriteria()), mapper);
+
+		assertEquals(queryString2, queryString1, false);
+	}
+
+	@Test
+	void shouldMatch3() throws JSONException {
+
+		CriteriaQuery query1 = new CriteriaQuery(
+				new Criteria("firstName").matches("hello")
+						.and("nickName").matches("!")
+						.matches("world"));
+
+		mappingElasticsearchConverter.updateQuery(query1, Person.class);
+		var queryString1 = queryToJson(CriteriaQueryProcessor.createQuery(query1.getCriteria()), mapper);
+
+		CriteriaQuery query2 = new CriteriaQuery(
+				new Criteria("firstName").matches("hello")
+						.and(new Criteria("nickName").matches("!").matches("world"))
+		);
+
+		mappingElasticsearchConverter.updateQuery(query2, Person.class);
+		var queryString2 = queryToJson(CriteriaQueryProcessor.createQuery(query2.getCriteria()), mapper);
+
+		assertEquals(queryString2, queryString1, false);
+	}
+
+	@Test
+	void shouldMatch2() throws JSONException {
+
+		CriteriaQuery query1 = new CriteriaQuery(
+				new Criteria("firstName").matches("hello")
+						.and(new Criteria("nickName").matches("!"))
+						.matches("world"));
+
+		mappingElasticsearchConverter.updateQuery(query1, Person.class);
+		var queryString1 = queryToJson(CriteriaQueryProcessor.createQuery(query1.getCriteria()), mapper);
+
+		CriteriaQuery query2 = new CriteriaQuery(
+				new Criteria("firstName").matches("hello").matches("world")
+						.and(new Criteria("nickName").matches("!"))
+						);
+
+		mappingElasticsearchConverter.updateQuery(query2, Person.class);
+		var queryString2 = queryToJson(CriteriaQueryProcessor.createQuery(query2.getCriteria()), mapper);
+
+		assertEquals(queryString2, queryString1, false);
+	}
+
 	@Test // DATAES-931
 	@DisplayName("should map names in GeoJson query")
 	void shouldMapNamesInGeoJsonQuery() throws JSONException {

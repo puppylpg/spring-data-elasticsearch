@@ -118,7 +118,28 @@ public abstract class CriteriaQueryIntegrationTests {
 		operations.save(sampleEntity2);
 
 		CriteriaQuery criteriaQuery = new CriteriaQuery(
-				new Criteria("message").contains("test").and(new Criteria("message").contains("some")));
+				new Criteria("message").contains("test").and(new Criteria("message").contains("some").or("type").contains("unknown")));
+		SearchHits<SampleEntity> searchHits = operations.search(criteriaQuery, SampleEntity.class);
+
+		assertThat(searchHits).isNotNull();
+		assertThat(searchHits.getTotalHits()).isGreaterThanOrEqualTo(1);
+	}
+
+	@Test // #2837
+	public void shouldMergeAndOperationWithinCriteria() {
+
+		SampleEntity sampleEntity1 = new SampleEntity();
+		sampleEntity1.setId(nextIdAsString());
+		sampleEntity1.setMessage("some test message");
+		operations.save(sampleEntity1);
+		SampleEntity sampleEntity2 = new SampleEntity();
+		sampleEntity2.setId(nextIdAsString());
+		sampleEntity2.setMessage("some other message");
+		operations.save(sampleEntity2);
+
+		var criteria = new Criteria("message").contains("test");
+		criteria.and("message").contains("some");
+		CriteriaQuery criteriaQuery = new CriteriaQuery(criteria);
 		SearchHits<SampleEntity> searchHits = operations.search(criteriaQuery, SampleEntity.class);
 
 		assertThat(searchHits).isNotNull();
@@ -139,6 +160,53 @@ public abstract class CriteriaQueryIntegrationTests {
 
 		CriteriaQuery criteriaQuery = new CriteriaQuery(
 				new Criteria("message").contains("test").or(new Criteria("message").contains("other")));
+		SearchHits<SampleEntity> searchHits = operations.search(criteriaQuery, SampleEntity.class);
+
+		assertThat(searchHits).isNotNull();
+		assertThat(searchHits.getSearchHits().stream().map(SearchHit::getId)).containsExactlyInAnyOrder(sampleEntity1.id,
+				sampleEntity2.id);
+	}
+
+	@Test // #2837
+	public void shouldMergeOrOperationWithinCriteria() {
+
+		SampleEntity sampleEntity1 = new SampleEntity();
+		sampleEntity1.setId(nextIdAsString());
+		sampleEntity1.setMessage("some test message");
+		operations.save(sampleEntity1);
+		SampleEntity sampleEntity2 = new SampleEntity();
+		sampleEntity2.setId(nextIdAsString());
+		sampleEntity2.setMessage("some other message");
+		operations.save(sampleEntity2);
+
+		var criteria = new Criteria("message").contains("test");
+		criteria.or("message").contains("other");
+		CriteriaQuery criteriaQuery = new CriteriaQuery(criteria);
+		SearchHits<SampleEntity> searchHits = operations.search(criteriaQuery, SampleEntity.class);
+
+		assertThat(searchHits).isNotNull();
+		assertThat(searchHits.getSearchHits().stream().map(SearchHit::getId)).containsExactlyInAnyOrder(sampleEntity1.id,
+				sampleEntity2.id);
+	}
+
+	@Test // #2837
+	public void shouldMergeOrOperationWithinCompletedCriteria() {
+
+		SampleEntity sampleEntity1 = new SampleEntity();
+		sampleEntity1.setId(nextIdAsString());
+		sampleEntity1.setMessage("some first message");
+		sampleEntity1.setType("type1");
+		operations.save(sampleEntity1);
+		SampleEntity sampleEntity2 = new SampleEntity();
+		sampleEntity2.setId(nextIdAsString());
+		sampleEntity2.setType("type2");
+		sampleEntity2.setMessage("some second message");
+		operations.save(sampleEntity2);
+
+		var criteria = new Criteria("message").contains("some");
+		criteria.or(new Criteria("type").is("type2"));
+		criteria.contains("first");
+		CriteriaQuery criteriaQuery = new CriteriaQuery(criteria);
 		SearchHits<SampleEntity> searchHits = operations.search(criteriaQuery, SampleEntity.class);
 
 		assertThat(searchHits).isNotNull();

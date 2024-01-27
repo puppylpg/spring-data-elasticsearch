@@ -15,6 +15,7 @@
  */
 package org.springframework.data.elasticsearch.core.query;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -22,6 +23,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import org.springframework.dao.InvalidDataAccessApiUsageException;
 import org.springframework.data.elasticsearch.core.geo.GeoBox;
@@ -51,6 +53,7 @@ import org.springframework.util.StringUtils;
  * @author Franck Marchand
  * @author Peter-Josef Meisch
  * @author Ezequiel Antúnez Camacho
+ * @author Haibo Liu
  */
 public class Criteria {
 
@@ -61,9 +64,15 @@ public class Criteria {
 	private boolean negating = false;
 
 	private final CriteriaChain criteriaChain = new CriteriaChain();
-	private final Set<CriteriaEntry> queryCriteriaEntries = new LinkedHashSet<>();
-	private final Set<CriteriaEntry> filterCriteriaEntries = new LinkedHashSet<>();
-	private final Set<Criteria> subCriteria = new LinkedHashSet<>();
+	/**
+	 * {@link Criteria} inside it are already fully constructed, added by {@link #and(Criteria)}, {@link #and(Criteria...)}
+	 * or {@link #or(Criteria)}
+	 */
+	private final List<Criteria> completedChain = new ArrayList<>();
+
+	protected final Set<CriteriaEntry> queryCriteriaEntries = new LinkedHashSet<>();
+	protected final Set<CriteriaEntry> filterCriteriaEntries = new LinkedHashSet<>();
+	protected final Set<Criteria> subCriteria = new LinkedHashSet<>();
 
 	// region criteria creation
 
@@ -178,7 +187,7 @@ public class Criteria {
 	}
 
 	public List<Criteria> getCriteriaChain() {
-		return Collections.unmodifiableList(this.criteriaChain);
+		return Stream.concat(criteriaChain.stream(), completedChain.stream()).toList();
 	}
 
 	/**
@@ -233,23 +242,25 @@ public class Criteria {
 
 	// region criteria chaining
 	/**
-	 * Chain a new and-Criteria
+	 * Chain a Criteria to this object.
 	 *
 	 * @param field the field for the new Criteria
-	 * @return the new chained Criteria
+	 * @return this object
 	 */
 	public Criteria and(Field field) {
-		return new Criteria(criteriaChain, field);
+		criteriaChain.add(new Criteria(criteriaChain, field));
+		return this;
 	}
 
 	/**
-	 * Chain a new and- Criteria
+	 * Chain a Criteria to this object.
 	 *
 	 * @param fieldName the field for the new Criteria
-	 * @return the new chained Criteria
+	 * @return this object
 	 */
 	public Criteria and(String fieldName) {
-		return new Criteria(criteriaChain, fieldName);
+		criteriaChain.add(new Criteria(criteriaChain, fieldName));
+		return this;
 	}
 
 	/**
@@ -262,7 +273,7 @@ public class Criteria {
 
 		Assert.notNull(criteria, "Cannot chain 'null' criteria.");
 
-		this.criteriaChain.add(criteria);
+		completedChain.add(criteria);
 		return this;
 	}
 
@@ -276,7 +287,7 @@ public class Criteria {
 
 		Assert.notNull(criterias, "Cannot chain 'null' criterias.");
 
-		this.criteriaChain.addAll(Arrays.asList(criterias));
+		completedChain.addAll(Arrays.asList(criterias));
 		return this;
 	}
 
@@ -284,20 +295,22 @@ public class Criteria {
 	 * Chain a new or-Criteria
 	 *
 	 * @param field the field for the new Criteria
-	 * @return the new chained Criteria
+	 * @return this object
 	 */
 	public Criteria or(Field field) {
-		return new OrCriteria(this.criteriaChain, field);
+		criteriaChain.add(new OrCriteria(field));
+		return this;
 	}
 
 	/**
 	 * Chain a new or-Criteria
 	 *
 	 * @param fieldName the field for the new Criteria
-	 * @return the new chained Criteria
+	 * @return this object
 	 */
 	public Criteria or(String fieldName) {
-		return or(new SimpleField(fieldName));
+		criteriaChain.add(new OrCriteria(fieldName));
+		return this;
 	}
 
 	/**
@@ -306,7 +319,7 @@ public class Criteria {
 	 * chain.
 	 *
 	 * @param criteria contains the information for the new Criteria
-	 * @return the new chained criteria
+	 * @return this object
 	 */
 	public Criteria or(Criteria criteria) {
 
@@ -316,7 +329,9 @@ public class Criteria {
 		Criteria orCriteria = new OrCriteria(this.criteriaChain, criteria.getField());
 		orCriteria.queryCriteriaEntries.addAll(criteria.queryCriteriaEntries);
 		orCriteria.filterCriteriaEntries.addAll(criteria.filterCriteriaEntries);
-		return orCriteria;
+		orCriteria.subCriteria.addAll(criteria.subCriteria);
+		completedChain.add(orCriteria);
+		return this;
 	}
 
 	/**
@@ -344,7 +359,7 @@ public class Criteria {
 	 * @return this object
 	 */
 	public Criteria is(Object o) {
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.EQUALS, o));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.EQUALS, o));
 		return this;
 	}
 
@@ -355,7 +370,7 @@ public class Criteria {
 	 * @since 4.0
 	 */
 	public Criteria exists() {
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.EXISTS));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.EXISTS));
 		return this;
 	}
 
@@ -373,7 +388,7 @@ public class Criteria {
 			throw new InvalidDataAccessApiUsageException("Range [* TO *] is not allowed");
 		}
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.BETWEEN, new Object[] { lowerBound, upperBound }));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.BETWEEN, new Object[] { lowerBound, upperBound }));
 		return this;
 	}
 
@@ -388,7 +403,7 @@ public class Criteria {
 		Assert.notNull(s, "s may not be null");
 
 		assertNoBlankInWildcardQuery(s, false, true);
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.STARTS_WITH, s));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.STARTS_WITH, s));
 		return this;
 	}
 
@@ -404,7 +419,7 @@ public class Criteria {
 		Assert.notNull(s, "s may not be null");
 
 		assertNoBlankInWildcardQuery(s, true, true);
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.CONTAINS, s));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.CONTAINS, s));
 		return this;
 	}
 
@@ -420,7 +435,7 @@ public class Criteria {
 		Assert.notNull(s, "s may not be null");
 
 		assertNoBlankInWildcardQuery(s, true, false);
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.ENDS_WITH, s));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.ENDS_WITH, s));
 		return this;
 	}
 
@@ -447,7 +462,7 @@ public class Criteria {
 
 		Assert.notNull(values, "Collection of 'in' values must not be null");
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.IN, values));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.IN, values));
 		return this;
 	}
 
@@ -473,7 +488,7 @@ public class Criteria {
 
 		Assert.notNull(values, "Collection of 'NotIn' values must not be null");
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.NOT_IN, values));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.NOT_IN, values));
 		return this;
 	}
 
@@ -485,7 +500,7 @@ public class Criteria {
 	 * @return this object
 	 */
 	public Criteria expression(String s) {
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.EXPRESSION, s));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.EXPRESSION, s));
 		return this;
 	}
 
@@ -496,7 +511,7 @@ public class Criteria {
 	 * @return this object
 	 */
 	public Criteria fuzzy(String s) {
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.FUZZY, s));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.FUZZY, s));
 		return this;
 	}
 
@@ -510,7 +525,7 @@ public class Criteria {
 
 		Assert.notNull(upperBound, "upperBound must not be null");
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.LESS_EQUAL, upperBound));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.LESS_EQUAL, upperBound));
 		return this;
 	}
 
@@ -524,7 +539,7 @@ public class Criteria {
 
 		Assert.notNull(upperBound, "upperBound must not be null");
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.LESS, upperBound));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.LESS, upperBound));
 		return this;
 	}
 
@@ -538,7 +553,7 @@ public class Criteria {
 
 		Assert.notNull(lowerBound, "lowerBound must not be null");
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.GREATER_EQUAL, lowerBound));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.GREATER_EQUAL, lowerBound));
 		return this;
 	}
 
@@ -552,7 +567,7 @@ public class Criteria {
 
 		Assert.notNull(lowerBound, "lowerBound must not be null");
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.GREATER, lowerBound));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.GREATER, lowerBound));
 		return this;
 	}
 
@@ -568,7 +583,7 @@ public class Criteria {
 
 		Assert.notNull(value, "value must not be null");
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.MATCHES, value));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.MATCHES, value));
 		return this;
 	}
 
@@ -584,7 +599,7 @@ public class Criteria {
 
 		Assert.notNull(value, "value must not be null");
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.MATCHES_ALL, value));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.MATCHES_ALL, value));
 		return this;
 	}
 
@@ -596,7 +611,7 @@ public class Criteria {
 	 */
 	public Criteria empty() {
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.EMPTY));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.EMPTY));
 		return this;
 	}
 
@@ -608,7 +623,7 @@ public class Criteria {
 	 */
 	public Criteria notEmpty() {
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.NOT_EMPTY));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.NOT_EMPTY));
 		return this;
 	}
 
@@ -623,7 +638,7 @@ public class Criteria {
 
 		Assert.notNull(value, "value must not be null");
 
-		queryCriteriaEntries.add(new CriteriaEntry(OperationKey.REGEXP, value));
+		getLastQueryCriteriaEntries().add(new CriteriaEntry(OperationKey.REGEXP, value));
 		return this;
 	}
 
@@ -641,7 +656,7 @@ public class Criteria {
 
 		Assert.notNull(boundingBox, "boundingBox value for boundedBy criteria must not be null");
 
-		filterCriteriaEntries.add(new CriteriaEntry(OperationKey.BBOX, new Object[] { boundingBox }));
+		getLastFilterCriteriaEntries().add(new CriteriaEntry(OperationKey.BBOX, new Object[] { boundingBox }));
 		return this;
 	}
 
@@ -690,7 +705,7 @@ public class Criteria {
 		Assert.notNull(topLeftPoint, "topLeftPoint must not be null");
 		Assert.notNull(bottomRightPoint, "bottomRightPoint must not be null");
 
-		filterCriteriaEntries.add(new CriteriaEntry(OperationKey.BBOX, new Object[] { topLeftPoint, bottomRightPoint }));
+		getLastFilterCriteriaEntries().add(new CriteriaEntry(OperationKey.BBOX, new Object[] { topLeftPoint, bottomRightPoint }));
 		return this;
 	}
 
@@ -706,7 +721,7 @@ public class Criteria {
 		Assert.notNull(topLeftPoint, "topLeftPoint must not be null");
 		Assert.notNull(bottomRightPoint, "bottomRightPoint must not be null");
 
-		filterCriteriaEntries.add(new CriteriaEntry(OperationKey.BBOX,
+		getLastFilterCriteriaEntries().add(new CriteriaEntry(OperationKey.BBOX,
 				new Object[] { GeoPoint.fromPoint(topLeftPoint), GeoPoint.fromPoint(bottomRightPoint) }));
 		return this;
 	}
@@ -724,7 +739,7 @@ public class Criteria {
 		Assert.notNull(location, "Location value for near criteria must not be null");
 		Assert.notNull(location, "Distance value for near criteria must not be null");
 
-		filterCriteriaEntries.add(new CriteriaEntry(OperationKey.WITHIN, new Object[] { location, distance }));
+		getLastFilterCriteriaEntries().add(new CriteriaEntry(OperationKey.WITHIN, new Object[] { location, distance }));
 		return this;
 	}
 
@@ -740,7 +755,7 @@ public class Criteria {
 		Assert.notNull(location, "Location value for near criteria must not be null");
 		Assert.notNull(location, "Distance value for near criteria must not be null");
 
-		filterCriteriaEntries.add(new CriteriaEntry(OperationKey.WITHIN, new Object[] { location, distance }));
+		getLastFilterCriteriaEntries().add(new CriteriaEntry(OperationKey.WITHIN, new Object[] { location, distance }));
 		return this;
 	}
 
@@ -756,7 +771,7 @@ public class Criteria {
 
 		Assert.isTrue(!StringUtils.isEmpty(geoLocation), "geoLocation value must not be null");
 
-		filterCriteriaEntries.add(new CriteriaEntry(OperationKey.WITHIN, new Object[] { geoLocation, distance }));
+		getLastFilterCriteriaEntries().add(new CriteriaEntry(OperationKey.WITHIN, new Object[] { geoLocation, distance }));
 		return this;
 	}
 
@@ -770,7 +785,7 @@ public class Criteria {
 
 		Assert.notNull(geoShape, "geoShape must not be null");
 
-		filterCriteriaEntries.add(new CriteriaEntry(OperationKey.GEO_INTERSECTS, geoShape));
+		getLastFilterCriteriaEntries().add(new CriteriaEntry(OperationKey.GEO_INTERSECTS, geoShape));
 		return this;
 	}
 
@@ -784,7 +799,7 @@ public class Criteria {
 
 		Assert.notNull(geoShape, "geoShape must not be null");
 
-		filterCriteriaEntries.add(new CriteriaEntry(OperationKey.GEO_IS_DISJOINT, geoShape));
+		getLastFilterCriteriaEntries().add(new CriteriaEntry(OperationKey.GEO_IS_DISJOINT, geoShape));
 		return this;
 	}
 
@@ -797,7 +812,7 @@ public class Criteria {
 	public Criteria within(GeoJson<?> geoShape) {
 		Assert.notNull(geoShape, "geoShape must not be null");
 
-		filterCriteriaEntries.add(new CriteriaEntry(OperationKey.GEO_WITHIN, geoShape));
+		getLastFilterCriteriaEntries().add(new CriteriaEntry(OperationKey.GEO_WITHIN, geoShape));
 		return this;
 	}
 
@@ -810,7 +825,7 @@ public class Criteria {
 	public Criteria contains(GeoJson<?> geoShape) {
 		Assert.notNull(geoShape, "geoShape must not be null");
 
-		filterCriteriaEntries.add(new CriteriaEntry(OperationKey.GEO_CONTAINS, geoShape));
+		getLastFilterCriteriaEntries().add(new CriteriaEntry(OperationKey.GEO_CONTAINS, geoShape));
 		return this;
 	}
 	// endregion
@@ -826,6 +841,18 @@ public class Criteria {
 
 	private List<Object> toCollection(Object... values) {
 		return Arrays.asList(values);
+	}
+
+	private Criteria getLastCriteria() {
+		return criteriaChain.get(criteriaChain.size() - 1);
+	}
+
+	private Set<CriteriaEntry> getLastQueryCriteriaEntries() {
+		return getLastCriteria().queryCriteriaEntries;
+	}
+
+	private Set<CriteriaEntry> getLastFilterCriteriaEntries() {
+		return getLastCriteria().filterCriteriaEntries;
 	}
 
 	// endregion
@@ -845,6 +872,7 @@ public class Criteria {
 			return false;
 		if (!Objects.equals(field, criteria.field))
 			return false;
+		// TODO
 		if (!queryCriteriaEntries.equals(criteria.queryCriteriaEntries))
 			return false;
 		if (!filterCriteriaEntries.equals(criteria.filterCriteriaEntries))
