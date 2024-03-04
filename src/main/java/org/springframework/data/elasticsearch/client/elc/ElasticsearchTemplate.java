@@ -29,7 +29,6 @@ import co.elastic.clients.transport.Version;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -431,41 +430,6 @@ public class ElasticsearchTemplate extends AbstractElasticsearchTemplate {
 			ClearScrollRequest request = ClearScrollRequest.of(csr -> csr.scrollId(scrollIds));
 			execute(client -> client.clearScroll(request));
 		}
-	}
-
-	@Override
-	public <T> List<SearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz, IndexCoordinates index) {
-
-		Assert.notNull(queries, "queries must not be null");
-		Assert.notNull(clazz, "clazz must not be null");
-
-		int size = queries.size();
-		// noinspection unchecked
-		return multiSearch(queries, Collections.nCopies(size, clazz), Collections.nCopies(size, index))
-				.stream().map(searchHits -> (SearchHits<T>) searchHits)
-				.collect(Collectors.toList());
-	}
-
-	@Override
-	public List<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes) {
-
-		Assert.notNull(queries, "queries must not be null");
-		Assert.notNull(classes, "classes must not be null");
-		Assert.isTrue(queries.size() == classes.size(), "queries and classes must have the same size");
-
-		return multiSearch(queries, classes, classes.stream().map(this::getIndexCoordinatesFor).toList());
-	}
-
-	@Override
-	public List<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes,
-			IndexCoordinates index) {
-
-		Assert.notNull(queries, "queries must not be null");
-		Assert.notNull(classes, "classes must not be null");
-		Assert.notNull(index, "index must not be null");
-		Assert.isTrue(queries.size() == classes.size(), "queries and classes must have the same size");
-
-		return multiSearch(queries, classes, Collections.nCopies(queries.size(), index));
 	}
 
 	@Override

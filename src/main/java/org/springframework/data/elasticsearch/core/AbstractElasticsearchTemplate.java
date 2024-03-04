@@ -449,6 +449,16 @@ public abstract class AbstractElasticsearchTemplate implements ElasticsearchOper
 	}
 
 	@Override
+	public List<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes) {
+
+		Assert.notNull(queries, "queries must not be null");
+		Assert.notNull(classes, "classes must not be null");
+		Assert.isTrue(queries.size() == classes.size(), "queries and classes must have the same size");
+
+		return multiSearch(queries, classes, classes.stream().map(this::getIndexCoordinatesFor).toList());
+	}
+
+	@Override
 	public <T> SearchHits<T> search(Query query, Class<T> clazz) {
 		return search(query, clazz, getIndexCoordinatesFor(clazz));
 	}

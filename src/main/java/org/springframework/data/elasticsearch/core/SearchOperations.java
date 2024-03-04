@@ -16,6 +16,7 @@
 package org.springframework.data.elasticsearch.core;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 
 import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
@@ -23,6 +24,7 @@ import org.springframework.data.elasticsearch.core.query.BaseQueryBuilder;
 import org.springframework.data.elasticsearch.core.query.MoreLikeThisQuery;
 import org.springframework.data.elasticsearch.core.query.Query;
 import org.springframework.lang.Nullable;
+import org.springframework.util.Assert;
 
 /**
  * The operations for the
@@ -32,6 +34,7 @@ import org.springframework.lang.Nullable;
  * @author Peter-Josef Meisch
  * @author Sascha Woo
  * @author Hamid Rahimi
+ * @author Haibo Liu
  * @since 4.0
  */
 public interface SearchOperations {
@@ -112,7 +115,16 @@ public interface SearchOperations {
 	 * @param <T> element return type
 	 * @return list of SearchHits
 	 */
-	<T> List<SearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz, IndexCoordinates index);
+	default <T> List<SearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz, IndexCoordinates index) {
+		Assert.notNull(queries, "queries must not be null");
+		Assert.notNull(clazz, "clazz must not be null");
+
+		int size = queries.size();
+		// noinspection unchecked
+		return multiSearch(queries, Collections.nCopies(size, clazz), Collections.nCopies(size, index))
+				.stream().map(searchHits -> (SearchHits<T>) searchHits)
+				.toList();
+	}
 
 	/**
 	 * Execute the multi search query against elasticsearch and return result as {@link List} of {@link SearchHits}.
@@ -132,7 +144,16 @@ public interface SearchOperations {
 	 * @param index the index to run the queries against
 	 * @return list of SearchHits
 	 */
-	List<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes, IndexCoordinates index);
+	default List<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes,
+			IndexCoordinates index) {
+
+		Assert.notNull(queries, "queries must not be null");
+		Assert.notNull(classes, "classes must not be null");
+		Assert.notNull(index, "index must not be null");
+		Assert.isTrue(queries.size() == classes.size(), "queries and classes must have the same size");
+
+		return multiSearch(queries, classes, Collections.nCopies(queries.size(), index));
+	}
 
 	/**
 	 * Execute the multi search query against elasticsearch and return result as {@link List} of {@link SearchHits}.
