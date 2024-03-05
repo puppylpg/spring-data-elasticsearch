@@ -465,7 +465,7 @@ public class ElasticsearchTemplate extends AbstractElasticsearchTemplate {
 			boolean isSearchTemplateQuery) {
 		return isSearchTemplateQuery ?
 				doMultiTemplateSearch(multiSearchQueryParameters.stream()
-						.map(p -> new MultiSearchTemplateQueryParameter((SearchTemplateQuery) p.query, p.clazz, p.index))
+						.map(p -> new MultiSearchTemplateQueryParameter((SearchTemplateQuery) p.query(), p.clazz(), p.index()))
 						.toList())
 				: doMultiSearch(multiSearchQueryParameters);
 	}
@@ -480,13 +480,12 @@ public class ElasticsearchTemplate extends AbstractElasticsearchTemplate {
 		Assert.isTrue(mSearchTemplateQueryParameters.size() == responseItems.size(),
 				"number of response items does not match number of requests");
 
-		int size = mSearchTemplateQueryParameters.size();
 		List<Class<?>> classes = mSearchTemplateQueryParameters
 				.stream().map(MultiSearchTemplateQueryParameter::clazz).collect(Collectors.toList());
 		List<IndexCoordinates> indices = mSearchTemplateQueryParameters
 				.stream().map(MultiSearchTemplateQueryParameter::index).collect(Collectors.toList());
 
-		return getSearchHitsFromMsearchResponse(size, classes, indices, responseItems);
+		return getSearchHitsFromMsearchResponse(classes, indices, responseItems);
 	}
 
 	private List<SearchHits<?>> doMultiSearch(List<MultiSearchQueryParameter> multiSearchQueryParameters) {
@@ -500,22 +499,22 @@ public class ElasticsearchTemplate extends AbstractElasticsearchTemplate {
 		Assert.isTrue(multiSearchQueryParameters.size() == responseItems.size(),
 				"number of response items does not match number of requests");
 
-		int size = multiSearchQueryParameters.size();
 		List<Class<?>> classes = multiSearchQueryParameters
 				.stream().map(MultiSearchQueryParameter::clazz).collect(Collectors.toList());
 		List<IndexCoordinates> indices = multiSearchQueryParameters
 				.stream().map(MultiSearchQueryParameter::index).collect(Collectors.toList());
 
-		return getSearchHitsFromMsearchResponse(size, classes, indices, responseItems);
+		return getSearchHitsFromMsearchResponse(classes, indices, responseItems);
 	}
 
 	/**
 	 * {@link MsearchResponse} and {@link MsearchTemplateResponse} share the same {@link MultiSearchResponseItem}
 	 */
 	@SuppressWarnings({ "unchecked", "rawtypes" })
-	private List<SearchHits<?>> getSearchHitsFromMsearchResponse(int size, List<Class<?>> classes,
-			List<IndexCoordinates> indices, List<MultiSearchResponseItem<EntityAsMap>> responseItems) {
-		List<SearchHits<?>> searchHitsList = new ArrayList<>(size);
+	private List<SearchHits<?>> getSearchHitsFromMsearchResponse(List<Class<?>> classes, List<IndexCoordinates> indices,
+			List<MultiSearchResponseItem<EntityAsMap>> responseItems) {
+		List<SearchHits<?>> searchHitsList = new ArrayList<>();
+
 		Iterator<Class<?>> clazzIter = classes.iterator();
 		Iterator<IndexCoordinates> indexIter = indices.iterator();
 		Iterator<MultiSearchResponseItem<EntityAsMap>> responseIterator = responseItems.iterator();
@@ -545,12 +544,6 @@ public class ElasticsearchTemplate extends AbstractElasticsearchTemplate {
 		}
 
 		return searchHitsList;
-	}
-
-	/**
-	 * value class combining the information needed for a single query in a multisearch request.
-	 */
-	record MultiSearchQueryParameter(Query query, Class<?> clazz, IndexCoordinates index) {
 	}
 
 	/**

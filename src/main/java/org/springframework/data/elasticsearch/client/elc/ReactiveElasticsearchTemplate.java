@@ -21,17 +21,23 @@ import static org.springframework.data.elasticsearch.client.elc.TypeUtils.*;
 import co.elastic.clients.elasticsearch._types.Result;
 import co.elastic.clients.elasticsearch.core.*;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
+import co.elastic.clients.elasticsearch.core.msearch.MultiSearchResponseItem;
+import co.elastic.clients.elasticsearch.core.msearch.MultiSearchResult;
+import co.elastic.clients.elasticsearch.core.search.Hit;
 import co.elastic.clients.elasticsearch.core.search.ResponseBody;
 import co.elastic.clients.json.JsonpMapper;
 import co.elastic.clients.transport.Version;
 import co.elastic.clients.transport.endpoints.BooleanResponse;
+import org.springframework.data.elasticsearch.core.SearchHits;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.util.function.Tuple2;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiFunction;
@@ -499,6 +505,92 @@ public class ReactiveElasticsearchTemplate extends AbstractReactiveElasticsearch
 
         return Mono.from(execute(client -> client.search(searchRequest, EntityAsMap.class)))
                 .map(searchResponse -> SearchDocumentResponseBuilder.from(searchResponse, entityCreator, jsonpMapper));
+    }
+
+    @Override
+    public Flux<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes, List<IndexCoordinates> indexes) {
+
+        Assert.notNull(queries, "queries must not be null");
+        Assert.notNull(classes, "classes must not be null");
+        Assert.notNull(indexes, "indexes must not be null");
+        Assert.isTrue(queries.size() == classes.size() && queries.size() == indexes.size(),
+                "queries, classes and indexes must have the same size");
+
+        List<MultiSearchQueryParameter> multiSearchQueryParameters = new ArrayList<>(queries.size());
+        Iterator<Class<?>> it = classes.iterator();
+        Iterator<IndexCoordinates> indexesIt = indexes.iterator();
+
+        Assert.isTrue(!queries.isEmpty(), "queries should have at least 1 query");
+        boolean isSearchTemplateQuery = queries.get(0) instanceof SearchTemplateQuery;
+
+        for (Query query : queries) {
+            Assert.isTrue((query instanceof SearchTemplateQuery) == isSearchTemplateQuery,
+                    "SearchTemplateQuery can't be mixed with other types of query in multiple search");
+
+            Class<?> clazz = it.next();
+            IndexCoordinates index = indexesIt.next();
+            multiSearchQueryParameters.add(new MultiSearchQueryParameter(query, clazz, index));
+        }
+
+        return multiSearch(multiSearchQueryParameters, isSearchTemplateQuery);
+    }
+
+    private Flux<SearchHits<?>> multiSearch(List<MultiSearchQueryParameter> multiSearchQueryParameters,
+                                            boolean isSearchTemplateQuery) {
+        return isSearchTemplateQuery ?
+                doMultiTemplateSearch(multiSearchQueryParameters.stream()
+                        .map(p -> new ElasticsearchTemplate.MultiSearchTemplateQueryParameter((SearchTemplateQuery) p.query(), p.clazz(), p.index()))
+                        .toList())
+                : doMultiSearch(multiSearchQueryParameters);
+    }
+
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    private Flux<SearchHits<?>> doMultiSearch(List<MultiSearchQueryParameter> multiSearchQueryParameters) {
+
+        MsearchRequest request = requestConverter.searchMsearchRequest(multiSearchQueryParameters,
+                routingResolver.getRouting());
+
+//        SearchDocumentCallback<T> callback = new ReadSearchDocumentCallback<>(resultType, index);
+//        return multiSearch(multiSearchQueryParameters, isSearchTemplateQuery).concatMap(callback::toSearchHit);
+
+        return Mono.from(execute(client -> client.msearch(request, EntityAsMap.class)))
+                .flatMapIterable(MultiSearchResult::responses)
+                .zipWithIterable(multiSearchQueryParameters)
+                .doOnNext(responseItem -> {
+                    if (responseItem.getT1().isFailure()) {
+                        if (LOGGER.isWarnEnabled()) {
+                            LOGGER.warn(String.format("multisearch response contains failure: %s",
+                                    responseItem.getT1().failure().error().reason()));
+                        }
+                    }
+                })
+                .filter(responseItem -> responseItem.getT1().isFailure())
+                .flatMap(tuple -> {
+                    MultiSearchQueryParameter parameter = tuple.getT2();
+                    SearchDocumentCallback<?> callback = new ReadSearchDocumentCallback<>(parameter.clazz(), parameter.index());
+
+                    return Flux.fromIterable(tuple.getT1().result().hits().hits()).map(hit -> DocumentAdapters.from(hit, jsonpMapper))
+                            .flatMap(callback::toSearchHit);
+                });
+    }
+
+    private Flux<SearchHits<?>> doMultiTemplateSearch(List<ElasticsearchTemplate.MultiSearchTemplateQueryParameter> mSearchTemplateQueryParameters) {
+        MsearchTemplateRequest request = requestConverter.searchMsearchTemplateRequest(mSearchTemplateQueryParameters,
+                routingResolver.getRouting());
+
+        MsearchTemplateResponse<EntityAsMap> response = execute(client -> client.msearchTemplate(request, EntityAsMap.class));
+        List<MultiSearchResponseItem<EntityAsMap>> responseItems = response.responses();
+
+        Assert.isTrue(mSearchTemplateQueryParameters.size() == responseItems.size(),
+                "number of response items does not match number of requests");
+
+        int size = mSearchTemplateQueryParameters.size();
+        List<Class<?>> classes = mSearchTemplateQueryParameters
+                .stream().map(ElasticsearchTemplate.MultiSearchTemplateQueryParameter::clazz).collect(Collectors.toList());
+        List<IndexCoordinates> indices = mSearchTemplateQueryParameters
+                .stream().map(ElasticsearchTemplate.MultiSearchTemplateQueryParameter::index).collect(Collectors.toList());
+
+        return getSearchHitsFromMsearchResponse(classes, indices, responseItems);
     }
 
     @Override

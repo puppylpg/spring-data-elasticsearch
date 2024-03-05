@@ -15,10 +15,12 @@
  */
 package org.springframework.data.elasticsearch.core;
 
+import org.springframework.util.Assert;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 
 import org.springframework.data.elasticsearch.core.mapping.IndexCoordinates;
@@ -71,7 +73,7 @@ public interface ReactiveSearchOperations {
 	 *
 	 * @param query must not be {@literal null}.
 	 * @param entityType must not be {@literal null}.
-	 * @param <T>
+	 * @param <T> element return type
 	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
 	 */
 	default <T> Flux<SearchHit<T>> search(Query query, Class<T> entityType) {
@@ -84,7 +86,7 @@ public interface ReactiveSearchOperations {
 	 * @param query must not be {@literal null}.
 	 * @param entityType The entity type for mapping the query. Must not be {@literal null}.
 	 * @param returnType The mapping target type. Must not be {@literal null}. Th
-	 * @param <T>
+	 * @param <T> element return type
 	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
 	 */
 	<T> Flux<SearchHit<T>> search(Query query, Class<?> entityType, Class<T> returnType);
@@ -95,7 +97,7 @@ public interface ReactiveSearchOperations {
 	 * @param query must not be {@literal null}.
 	 * @param entityType must not be {@literal null}.
 	 * @param index the target index, must not be {@literal null}
-	 * @param <T>
+	 * @param <T> element return type
 	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
 	 */
 	default <T> Flux<SearchHit<T>> search(Query query, Class<T> entityType, IndexCoordinates index) {
@@ -109,10 +111,83 @@ public interface ReactiveSearchOperations {
 	 * @param entityType must not be {@literal null}.
 	 * @param resultType the projection result type.
 	 * @param index the target index, must not be {@literal null}
-	 * @param <T>
+	 * @param <T> element return type
 	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
 	 */
 	<T> Flux<SearchHit<T>> search(Query query, Class<?> entityType, Class<T> resultType, IndexCoordinates index);
+
+	/**
+	 * Execute the multi search query against elasticsearch and return result as {@link List} of {@link SearchHits}.
+	 *
+	 * @param queries the queries to execute
+	 * @param clazz   the entity clazz
+	 * @param <T>     element return type
+	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
+	 * @since 5.3
+	 */
+	<T> Flux<SearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz);
+
+	/**
+	 * Execute the multi search query against elasticsearch and return result as {@link List} of {@link SearchHits}.
+	 *
+	 * @param queries the queries to execute
+	 * @param clazz   the entity clazz used for property mapping
+	 * @param index   the index to run the query against
+	 * @param <T>     element return type
+	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
+	 * @since 5.3
+	 */
+	default <T> Flux<SearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz, IndexCoordinates index) {
+		Assert.notNull(queries, "queries must not be null");
+		Assert.notNull(clazz, "clazz must not be null");
+
+		int size = queries.size();
+		// noinspection unchecked
+		return multiSearch(queries, Collections.nCopies(size, clazz), Collections.nCopies(size, index))
+				.map(searchHits -> (SearchHits<T>) searchHits);
+	}
+
+	/**
+	 * Execute the multi search query against elasticsearch and return result as {@link List} of {@link SearchHits}.
+	 *
+	 * @param queries the queries to execute
+	 * @param classes the entity classes
+	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
+	 * @since 5.3
+	 */
+	Flux<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes);
+
+	/**
+	 * Execute the multi search query against elasticsearch and return result as {@link List} of {@link SearchHits}.
+	 *
+	 * @param queries the queries to execute
+	 * @param classes the entity classes used for property mapping
+	 * @param index   the index to run the queries against
+	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
+	 * @since 5.3
+	 */
+	default Flux<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes,
+											IndexCoordinates index) {
+
+		Assert.notNull(queries, "queries must not be null");
+		Assert.notNull(classes, "classes must not be null");
+		Assert.notNull(index, "index must not be null");
+		Assert.isTrue(queries.size() == classes.size(), "queries and classes must have the same size");
+
+		return multiSearch(queries, classes, Collections.nCopies(queries.size(), index));
+	}
+
+	/**
+	 * Execute the multi search query against elasticsearch and return result as {@link List} of {@link SearchHits}.
+	 *
+	 * @param queries the queries to execute
+	 * @param classes the entity classes used for property mapping
+	 * @param indexes the indexes to run the queries against
+	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
+	 * @since 5.3
+	 */
+	Flux<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes,
+									List<IndexCoordinates> indexes);
 
 	/**
 	 * Search the index for entities matching the given {@link Query query}.

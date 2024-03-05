@@ -245,6 +245,29 @@ public class ReactiveElasticsearchClient extends ApiClient<ElasticsearchTranspor
 	}
 
 	/**
+	 * @since 5.3
+	 */
+	public <T> Mono<MsearchResponse<T>> msearch(MsearchRequest request, Class<T> tDocumentClass) {
+
+		Assert.notNull(request, "request must not be null");
+		Assert.notNull(tDocumentClass, "tDocumentClass must not be null");
+
+		return Mono.fromFuture(transport.performRequestAsync(request,
+				MsearchRequest.createMsearchEndpoint(this.getDeserializer(tDocumentClass)), transportOptions));
+	}
+
+	/**
+	 * @since 5.3
+	 */
+	public <T> Mono<MsearchResponse<T>> msearch(
+			Function<MsearchRequest.Builder, ObjectBuilder<MsearchRequest>> fn, Class<T> tDocumentClass) {
+
+		Assert.notNull(fn, "fn must not be null");
+
+		return msearch(fn.apply(new MsearchRequest.Builder()).build(), tDocumentClass);
+	}
+
+	/**
 	 * @since 5.1
 	 */
 	public <T> Mono<SearchTemplateResponse<T>> searchTemplate(SearchTemplateRequest request, Class<T> tDocumentClass) {

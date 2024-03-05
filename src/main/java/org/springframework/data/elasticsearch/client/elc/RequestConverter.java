@@ -1147,8 +1147,8 @@ class RequestConverter {
 		return builder.build();
 	}
 
-	public MsearchTemplateRequest searchMsearchTemplateRequest(
-			List<ElasticsearchTemplate.MultiSearchTemplateQueryParameter> multiSearchTemplateQueryParameters,
+	public <T> MsearchTemplateRequest searchMsearchTemplateRequest(
+			List<ElasticsearchTemplate.MultiSearchTemplateQueryParameter<T>> multiSearchTemplateQueryParameters,
 			@Nullable String routing) {
 
 		// basically the same stuff as in template search
@@ -1176,8 +1176,8 @@ class RequestConverter {
 		});
 	}
 
-	public MsearchRequest searchMsearchRequest(
-			List<ElasticsearchTemplate.MultiSearchQueryParameter> multiSearchQueryParameters, @Nullable String routing) {
+	public <T> MsearchRequest searchMsearchRequest(
+			List<MultiSearchQueryParameter<T>> multiSearchQueryParameters, @Nullable String routing) {
 
 		// basically the same stuff as in prepareSearchRequest, but the new Elasticsearch has different builders for a
 		// normal search and msearch

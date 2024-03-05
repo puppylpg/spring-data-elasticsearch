@@ -427,6 +427,21 @@ abstract public class AbstractReactiveElasticsearchTemplate
 	}
 
 	@Override
+	public <T> Flux<SearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz) {
+		return multiSearch(queries, clazz, getIndexCoordinatesFor(clazz));
+	}
+
+	@Override
+	public Flux<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes) {
+
+		Assert.notNull(queries, "queries must not be null");
+		Assert.notNull(classes, "classes must not be null");
+		Assert.isTrue(queries.size() == classes.size(), "queries and classes must have the same size");
+
+		return multiSearch(queries, classes, classes.stream().map(this::getIndexCoordinatesFor).toList());
+	}
+
+	@Override
 	public <T> Mono<SearchPage<T>> searchForPage(Query query, Class<?> entityType, Class<T> resultType) {
 		return searchForPage(query, entityType, resultType, getIndexCoordinatesFor(entityType));
 	}
