@@ -28,6 +28,9 @@ import co.elastic.clients.elasticsearch.core.search.ResponseBody;
 import co.elastic.clients.json.JsonpMapper;
 import co.elastic.clients.transport.Version;
 import co.elastic.clients.transport.endpoints.BooleanResponse;
+import org.springframework.data.elasticsearch.core.ReactiveSearchHitSupport;
+import org.springframework.data.elasticsearch.core.ReactiveSearchHits;
+import org.springframework.data.elasticsearch.core.SearchHitMapping;
 import org.springframework.data.elasticsearch.core.SearchHits;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -40,6 +43,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -508,7 +512,9 @@ public class ReactiveElasticsearchTemplate extends AbstractReactiveElasticsearch
     }
 
     @Override
-    public Flux<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes, List<IndexCoordinates> indexes) {
+    public <T> Flux<ReactiveSearchHits<T>> multiSearchT(List<? extends Query> queries, List<Class<T>> classes) {
+
+        List<IndexCoordinates> indexes = classes.stream().map(this::getIndexCoordinatesFor).toList();
 
         Assert.notNull(queries, "queries must not be null");
         Assert.notNull(classes, "classes must not be null");
@@ -517,7 +523,7 @@ public class ReactiveElasticsearchTemplate extends AbstractReactiveElasticsearch
                 "queries, classes and indexes must have the same size");
 
         List<MultiSearchQueryParameter> multiSearchQueryParameters = new ArrayList<>(queries.size());
-        Iterator<Class<?>> it = classes.iterator();
+        Iterator<Class<T>> it = classes.iterator();
         Iterator<IndexCoordinates> indexesIt = indexes.iterator();
 
         Assert.isTrue(!queries.isEmpty(), "queries should have at least 1 query");
@@ -527,70 +533,128 @@ public class ReactiveElasticsearchTemplate extends AbstractReactiveElasticsearch
             Assert.isTrue((query instanceof SearchTemplateQuery) == isSearchTemplateQuery,
                     "SearchTemplateQuery can't be mixed with other types of query in multiple search");
 
-            Class<?> clazz = it.next();
+            Class<T> clazz = it.next();
             IndexCoordinates index = indexesIt.next();
             multiSearchQueryParameters.add(new MultiSearchQueryParameter(query, clazz, index));
         }
 
-        return multiSearch(multiSearchQueryParameters, isSearchTemplateQuery);
-    }
-
-    private Flux<SearchHits<?>> multiSearch(List<MultiSearchQueryParameter> multiSearchQueryParameters,
-                                            boolean isSearchTemplateQuery) {
-        return isSearchTemplateQuery ?
-                doMultiTemplateSearch(multiSearchQueryParameters.stream()
-                        .map(p -> new ElasticsearchTemplate.MultiSearchTemplateQueryParameter((SearchTemplateQuery) p.query(), p.clazz(), p.index()))
-                        .toList())
-                : doMultiSearch(multiSearchQueryParameters);
-    }
-
-    @SuppressWarnings({ "unchecked", "rawtypes" })
-    private Flux<SearchHits<?>> doMultiSearch(List<MultiSearchQueryParameter> multiSearchQueryParameters) {
-
         MsearchRequest request = requestConverter.searchMsearchRequest(multiSearchQueryParameters,
                 routingResolver.getRouting());
-
-//        SearchDocumentCallback<T> callback = new ReadSearchDocumentCallback<>(resultType, index);
-//        return multiSearch(multiSearchQueryParameters, isSearchTemplateQuery).concatMap(callback::toSearchHit);
 
         return Mono.from(execute(client -> client.msearch(request, EntityAsMap.class)))
                 .flatMapIterable(MultiSearchResult::responses)
                 .zipWithIterable(multiSearchQueryParameters)
-                .doOnNext(responseItem -> {
-                    if (responseItem.getT1().isFailure()) {
+                .doOnNext(tuple -> {
+                    if (tuple.getT1().isFailure()) {
                         if (LOGGER.isWarnEnabled()) {
                             LOGGER.warn(String.format("multisearch response contains failure: %s",
-                                    responseItem.getT1().failure().error().reason()));
+                                    tuple.getT1().failure().error().reason()));
                         }
                     }
                 })
-                .filter(responseItem -> responseItem.getT1().isFailure())
+                .filter(tuple -> tuple.getT1().isFailure())
                 .flatMap(tuple -> {
                     MultiSearchQueryParameter parameter = tuple.getT2();
-                    SearchDocumentCallback<?> callback = new ReadSearchDocumentCallback<>(parameter.clazz(), parameter.index());
+                    Class<T> clazz = (Class<T>) parameter.clazz();
+                    IndexCoordinates index = parameter.index();
 
-                    return Flux.fromIterable(tuple.getT1().result().hits().hits()).map(hit -> DocumentAdapters.from(hit, jsonpMapper))
-                            .flatMap(callback::toSearchHit);
-                });
+                    SearchDocumentCallback<T> callback = new ReadSearchDocumentCallback<>(clazz, index);
+                    // TODO: case
+                    SearchDocumentResponse.EntityCreator<T> entityCreator = searchDocument -> callback.toEntity(searchDocument)
+                            .toFuture();
+
+                    return Mono.just(tuple.getT1().result())
+                            .map(result -> SearchDocumentResponseBuilder.from(result, entityCreator, jsonpMapper))
+                            .flatMap(searchDocumentResponse -> Flux.fromIterable(searchDocumentResponse.getSearchDocuments())
+                                    .flatMap(callback::toEntity)
+                                    .collectList()
+                                    .map(entities -> SearchHitMapping.mappingFor(clazz, converter)
+                                            .mapHits(searchDocumentResponse, entities)))
+                            .map(ReactiveSearchHitSupport::searchHitsFor);
+
+                })
+                // TODO
+                .log();
     }
 
-    private Flux<SearchHits<?>> doMultiTemplateSearch(List<ElasticsearchTemplate.MultiSearchTemplateQueryParameter> mSearchTemplateQueryParameters) {
-        MsearchTemplateRequest request = requestConverter.searchMsearchTemplateRequest(mSearchTemplateQueryParameters,
-                routingResolver.getRouting());
-
-        MsearchTemplateResponse<EntityAsMap> response = execute(client -> client.msearchTemplate(request, EntityAsMap.class));
-        List<MultiSearchResponseItem<EntityAsMap>> responseItems = response.responses();
-
-        Assert.isTrue(mSearchTemplateQueryParameters.size() == responseItems.size(),
-                "number of response items does not match number of requests");
-
-        int size = mSearchTemplateQueryParameters.size();
-        List<Class<?>> classes = mSearchTemplateQueryParameters
-                .stream().map(ElasticsearchTemplate.MultiSearchTemplateQueryParameter::clazz).collect(Collectors.toList());
-        List<IndexCoordinates> indices = mSearchTemplateQueryParameters
-                .stream().map(ElasticsearchTemplate.MultiSearchTemplateQueryParameter::index).collect(Collectors.toList());
-
-        return getSearchHitsFromMsearchResponse(classes, indices, responseItems);
+    @Override
+    public Flux<ReactiveSearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes, List<IndexCoordinates> indexes) {
+        return null;
+//
+//        Assert.notNull(queries, "queries must not be null");
+//        Assert.notNull(classes, "classes must not be null");
+//        Assert.notNull(indexes, "indexes must not be null");
+//        Assert.isTrue(queries.size() == classes.size() && queries.size() == indexes.size(),
+//                "queries, classes and indexes must have the same size");
+//
+//        List<MultiSearchQueryParameter> multiSearchQueryParameters = new ArrayList<>(queries.size());
+//        Iterator<Class<?>> it = classes.iterator();
+//        Iterator<IndexCoordinates> indexesIt = indexes.iterator();
+//
+//        Assert.isTrue(!queries.isEmpty(), "queries should have at least 1 query");
+//        boolean isSearchTemplateQuery = queries.get(0) instanceof SearchTemplateQuery;
+//
+//        for (Query query : queries) {
+//            Assert.isTrue((query instanceof SearchTemplateQuery) == isSearchTemplateQuery,
+//                    "SearchTemplateQuery can't be mixed with other types of query in multiple search");
+//
+//            Class<?> clazz = it.next();
+//            IndexCoordinates index = indexesIt.next();
+//            multiSearchQueryParameters.add(new MultiSearchQueryParameter(query, clazz, index));
+//        }
+//
+//        return multiSearch(multiSearchQueryParameters, isSearchTemplateQuery);
+//    }
+//
+//    private Flux<ReactiveSearchHits<?>> multiSearch(List<MultiSearchQueryParameter> multiSearchQueryParameters,
+//                                            boolean isSearchTemplateQuery) {
+//        // TODO: multi template search
+//        return doMultiSearch(multiSearchQueryParameters);
+//    }
+//
+////    @SuppressWarnings({ "unchecked", "rawtypes" })
+//    private Flux<ReactiveSearchHits<?>> doMultiSearch(List<MultiSearchQueryParameter> multiSearchQueryParameters) {
+//
+//        MsearchRequest request = requestConverter.searchMsearchRequest(multiSearchQueryParameters,
+//                routingResolver.getRouting());
+//
+//        return Mono.from(execute(client -> client.msearch(request, EntityAsMap.class)))
+//                .flatMapIterable(MultiSearchResult::responses)
+//                .zipWithIterable(multiSearchQueryParameters)
+//                .doOnNext(tuple -> {
+//                    if (tuple.getT1().isFailure()) {
+//                        if (LOGGER.isWarnEnabled()) {
+//                            LOGGER.warn(String.format("multisearch response contains failure: %s",
+//                                    tuple.getT1().failure().error().reason()));
+//                        }
+//                    }
+//                })
+//                .filter(tuple -> tuple.getT1().isFailure())
+//                .flatMap(tuple -> {
+//                    MultiSearchQueryParameter parameter = tuple.getT2();
+//                    Class clazz = parameter.clazz();
+//                    IndexCoordinates index = parameter.index();
+//
+//                    SearchDocumentCallback<?> callback = new ReadSearchDocumentCallback<>(clazz, index);
+//                    // TODO: case
+//                    SearchDocumentResponse.EntityCreator<?> entityCreator = searchDocument -> (CompletableFuture<Object>) callback.toEntity(searchDocument)
+//                            .toFuture();
+//
+//                    return Mono.just(tuple.getT1().result())
+//                            .map(result -> SearchDocumentResponseBuilder.from(result, entityCreator, jsonpMapper))
+//                            .flatMap(searchDocumentResponse -> Flux.fromIterable(searchDocumentResponse.getSearchDocuments())
+//                                    .flatMap(callback::toEntity)
+//                                    .collectList()
+//                                    .map(entities -> SearchHitMapping.mappingFor(clazz, converter)
+//                                            .mapHits(searchDocumentResponse, entities)))
+//                            .map(ReactiveSearchHitSupport::searchHitsFor);
+//
+////                    return Flux.fromIterable(tuple.getT1().result().hits().hits()).map(hit -> DocumentAdapters.from(hit, jsonpMapper))
+////                            .flatMap(callback::toEntity)
+////                            .collectList()
+////                            .map(entities -> SearchHitMapping.mappingFor(parameter.clazz(), converter)
+////                                    .mapHits(searchDocumentResponse, entities)))
+//                });
     }
 
     @Override

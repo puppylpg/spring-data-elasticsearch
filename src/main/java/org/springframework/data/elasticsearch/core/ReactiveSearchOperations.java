@@ -125,7 +125,7 @@ public interface ReactiveSearchOperations {
 	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
 	 * @since 5.3
 	 */
-	<T> Flux<SearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz);
+	<T> Flux<ReactiveSearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz);
 
 	/**
 	 * Execute the multi search query against elasticsearch and return result as {@link List} of {@link SearchHits}.
@@ -137,14 +137,14 @@ public interface ReactiveSearchOperations {
 	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
 	 * @since 5.3
 	 */
-	default <T> Flux<SearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz, IndexCoordinates index) {
+	default <T> Flux<ReactiveSearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz, IndexCoordinates index) {
 		Assert.notNull(queries, "queries must not be null");
 		Assert.notNull(clazz, "clazz must not be null");
 
 		int size = queries.size();
 		// noinspection unchecked
 		return multiSearch(queries, Collections.nCopies(size, clazz), Collections.nCopies(size, index))
-				.map(searchHits -> (SearchHits<T>) searchHits);
+				.map(searchHits -> (ReactiveSearchHits<T>) searchHits);
 	}
 
 	/**
@@ -155,7 +155,9 @@ public interface ReactiveSearchOperations {
 	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
 	 * @since 5.3
 	 */
-	Flux<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes);
+	Flux<ReactiveSearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes);
+
+	<T> Flux<ReactiveSearchHits<T>> multiSearchT(List<? extends Query> queries, List<Class<T>> classes);
 
 	/**
 	 * Execute the multi search query against elasticsearch and return result as {@link List} of {@link SearchHits}.
@@ -166,7 +168,7 @@ public interface ReactiveSearchOperations {
 	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
 	 * @since 5.3
 	 */
-	default Flux<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes,
+	default Flux<ReactiveSearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes,
 											IndexCoordinates index) {
 
 		Assert.notNull(queries, "queries must not be null");
@@ -186,7 +188,7 @@ public interface ReactiveSearchOperations {
 	 * @return a {@link Flux} emitting matching entities one by one wrapped in a {@link SearchHit}.
 	 * @since 5.3
 	 */
-	Flux<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes,
+	Flux<ReactiveSearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes,
 									List<IndexCoordinates> indexes);
 
 	/**

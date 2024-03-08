@@ -1162,6 +1162,36 @@ public abstract class ReactiveElasticsearchIntegrationTests {
 				.verifyComplete();
 	}
 
+	@Test // #2015
+	@DisplayName("should return Flux of ReactiveSearchHits")
+	void shouldReturnFluxOfReactiveSearchHits() {
+		List<SampleEntity> entities = new ArrayList<>();
+		for (int i = 1; i <= 20; i++) {
+			entities.add(randomEntity("message " + i));
+		}
+
+		Query query = Query.findAll().setPageable(PageRequest.of(0, 7));
+
+		operations.saveAll(Mono.just(entities), SampleEntity.class).then().block();
+
+		Flux<ReactiveSearchHits<SampleEntity>> searchHitsMono = operations.multiSearchT(List.of(query, query), List.of(SampleEntity.class, SampleEntity.class));
+
+		searchHitsMono.as(StepVerifier::create)
+				.consumeNextWith(reactiveSearchHits -> {
+					assertThat(reactiveSearchHits.getTotalHits()).isEqualTo(20);
+					reactiveSearchHits.getSearchHits().as(StepVerifier::create)
+							.expectNextCount(7)
+							.verifyComplete();
+				})
+				.consumeNextWith(reactiveSearchHits -> {
+					assertThat(reactiveSearchHits.getTotalHits()).isEqualTo(20);
+					reactiveSearchHits.getSearchHits().as(StepVerifier::create)
+							.expectNextCount(7)
+							.verifyComplete();
+				})
+				.verifyComplete();
+	}
+
 	@Test // #2230
 	@DisplayName("should work with readonly id")
 	void shouldWorkWithReadonlyId() {

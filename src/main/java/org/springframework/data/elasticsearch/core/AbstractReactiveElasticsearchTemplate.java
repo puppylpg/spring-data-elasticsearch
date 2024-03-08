@@ -427,12 +427,12 @@ abstract public class AbstractReactiveElasticsearchTemplate
 	}
 
 	@Override
-	public <T> Flux<SearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz) {
+	public <T> Flux<ReactiveSearchHits<T>> multiSearch(List<? extends Query> queries, Class<T> clazz) {
 		return multiSearch(queries, clazz, getIndexCoordinatesFor(clazz));
 	}
 
 	@Override
-	public Flux<SearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes) {
+	public Flux<ReactiveSearchHits<?>> multiSearch(List<? extends Query> queries, List<Class<?>> classes) {
 
 		Assert.notNull(queries, "queries must not be null");
 		Assert.notNull(classes, "classes must not be null");
